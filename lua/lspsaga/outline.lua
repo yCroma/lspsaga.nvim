@@ -102,7 +102,7 @@ local function parse_symbols(buf, symbols)
       end
       if not symbar.node_is_keyword(buf, v) then
         local tmp = tmp_node(v)
-        insert(res[v.kind].data, tmp)
+        insert(res[v.kind].data, 1, tmp) -- insert(res[v.kind].data, tmp)
       end
       if v.children then
         recursive_parse(v.children)
