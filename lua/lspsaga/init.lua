@@ -74,7 +74,10 @@ local default_config = {
   rename = {
     quit = '<C-c>',
     exec = '<CR>',
+    mark = 'x',
+    confirm = '<CR>',
     in_select = true,
+    whole_project = true,
   },
   symbol_in_winbar = {
     enable = true,
@@ -83,6 +86,7 @@ local default_config = {
     show_file = true,
     folder_level = 2,
     respect_root = false,
+    color_mode = false,
   },
   outline = {
     win_position = 'right',
@@ -141,7 +145,7 @@ end
 ---@deprecated
 function saga.init_lsp_saga()
   vim.notify(
-    'lspsaga.nvim v0.2.3+ has braking changes. Please read the docs and migrate your configuration to the new "setup" function!',
+    'lspsaga.nvim v0.2.3+ has breaking changes. Please read the docs and migrate your configuration to the new "setup" function!',
     vim.log.levels.ERROR
   )
 end

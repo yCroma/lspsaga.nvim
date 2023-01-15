@@ -3,6 +3,7 @@ local api, lsp, fn, keymap = vim.api, vim.lsp, vim.fn, vim.keymap
 local config = require('lspsaga').config
 local libs = require('lspsaga.libs')
 local symbar = require('lspsaga.symbolwinbar')
+local window = require('lspsaga.window')
 local outline_conf = config.outline
 local insert = table.insert
 local ctx = {}
@@ -181,15 +182,20 @@ function ot:apply_map()
       end
     end
 
-    if not node or not node.range then
+    if not node then
       return
     end
+    local range = node.range and node.range or node.location.range
 
     local winid = fn.bufwinid(self.render_buf)
     api.nvim_set_current_win(winid)
-    api.nvim_win_set_cursor(winid, { node.pos[1] + 1, node.pos[2] })
+    if node.pos then
+      api.nvim_win_set_cursor(winid, { node.pos[1] + 1, node.pos[2] })
+    else
+      api.nvim_win_set_cursor(winid, { range.start.line + 1, range.start.character })
+    end
     local width = #api.nvim_get_current_line()
-    libs.jump_beacon({ node.range.start.line, node.range.start.character }, width)
+    libs.jump_beacon({ range.start.line, range.start.character }, width)
   end, opt)
 end
 
@@ -321,6 +327,8 @@ end
 function ot:auto_preview()
   if self.preview_winid and api.nvim_win_is_valid(self.preview_winid) then
     api.nvim_win_close(self.preview_winid, true)
+    self.preview_winid = nil
+    self.preview_bufnr = nil
   end
 
   local curline = api.nvim_win_get_cursor(0)[1]
@@ -331,15 +339,19 @@ function ot:auto_preview()
       break
     end
   end
+  if not node then
+    return
+  end
 
-  if not node or not node.range then
+  local range = node.location and node.location.range or node.range
+  if not range then
     return
   end
 
   local content = api.nvim_buf_get_lines(
     self.render_buf,
-    node.range.start.line,
-    node.range['end'].line + config.preview.lines_below,
+    range.start.line,
+    range['end'].line + config.preview.lines_below,
     false
   )
 
@@ -382,13 +394,13 @@ function ot:auto_preview()
   local content_opts = {
     contents = content,
     buftype = 'nofile',
+    bufhidden = 'wipe',
     highlight = {
       normal = 'ActionPreviewNormal',
       border = 'ActionPreviewBorder',
     },
   }
 
-  local window = require('lspsaga.window')
   self.preview_bufnr, self.preview_winid = window.create_win_with_border(content_opts, opts)
   if fn.has('nvim-0.9') == 1 then
     local lang = require('nvim-treesitter.parsers').ft_to_lang(vim.bo[self.render_buf].filetype)
@@ -408,7 +420,7 @@ end
 function ot:close_when_last()
   api.nvim_create_autocmd('BufEnter', {
     group = self.group,
-    callback = function(opt)
+    callback = function()
       local wins = api.nvim_list_wins()
       if #wins > 2 then
         return
@@ -432,7 +444,10 @@ function ot:close_when_last()
         api.nvim_buf_delete(self.bufnr, { force = true })
       end
 
-      if #wins == 1 then
+      if #wins == 1 or (#wins == 2 and vim.tbl_contains(wins, self.preview_winid)) then
+        if api.nvim_win_is_valid(self.preview_winid) then
+          api.nvim_win_close(self.preview_winid, true)
+        end
         local bufnr = api.nvim_create_buf(true, true)
         api.nvim_win_set_buf(0, bufnr)
       end
@@ -491,11 +506,13 @@ function ot:render_outline(buf, symbols)
     end
   end
   self:apply_map()
-
-  api.nvim_buf_attach(self.bufnr, false, {
-    on_detach = function()
-      clean_ctx()
+  api.nvim_create_autocmd('WinClosed', {
+    callback = function()
+      if api.nvim_get_current_win() == self.winid then
+        clean_ctx()
+      end
     end,
+    desc = '[lspsaga.nvim] clean the outline data after the win closed',
   })
 end
 
