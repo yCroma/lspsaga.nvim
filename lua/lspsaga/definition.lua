@@ -1,15 +1,14 @@
 local config = require('lspsaga').config
 local lsp, fn, api, keymap = vim.lsp, vim.fn, vim.api, vim.keymap
 local libs = require('lspsaga.libs')
+local window = require('lspsaga.window')
 local def = {}
 
 -- a double linked list for store the node infor
 local ctx = {}
 
 local function clean_ctx()
-  for k, _ in pairs(ctx) do
-    ctx[k] = nil
-  end
+  ctx = {}
 end
 
 ---Get current node by id
@@ -19,16 +18,20 @@ local function find_node(winid)
   if vim.tbl_isempty(ctx) then
     return nil
   end
-  local key = vim.tbl_keys(ctx)[1]
-  local node = ctx[key].node
+
+  local node = ctx.node
   if not node then
     return
   end
+
   while true do
     if node.winid == winid then
       break
     end
-    node = node.next
+    node = node.next or nil
+    if not node then
+      break
+    end
   end
   return node
 end
@@ -49,8 +52,10 @@ local function remove(node)
     prev.next = next
   end
   cur_node = nil
-  local key = vim.tbl_keys(ctx)[1]
-  ctx[key].length = ctx[key].length - 1
+  ctx.length = ctx.length - 1
+  if ctx.length == 0 then
+    ctx = {}
+  end
   return true
 end
 
@@ -72,38 +77,39 @@ end
 ---@private
 local function push(node)
   if vim.tbl_isempty(ctx) then
-    ctx[node.main_winid] = {
+    ctx = {
       length = 1,
       node = node,
     }
     return
   end
-  local key = vim.tbl_keys(ctx)[1]
-  local tail = last_node(ctx[key])
+  local tail = last_node(ctx)
   tail.next = node
   node.prev = tail
-  ctx[key].length = ctx[key].length + 1
+  ctx.length = ctx.length + 1
+end
+
+local function list_length()
+  if vim.tbl_isempty(ctx) then
+    return 0
+  end
+  return ctx.length
 end
 
 function def:title_text(opts, link)
+  if not link then
+    return
+  end
   link = vim.split(link, libs.path_sep, { trimempty = true })
   if #link > 2 then
     link = table.concat(link, libs.path_sep, #link - 1, #link)
   end
-  local theme = require('lspsaga').theme()
   opts.title = {
-    { theme.left, 'TitleSymbol' },
     { link, 'TitleString' },
-    { theme.right, 'TitleSymbol' },
   }
-  local data = libs.icon_from_devicon(vim.bo.filetype, true)
-  if #data == 2 then
-    table.insert(opts.title, 2, { data[1] .. ' ', 'TitleFileIcon' })
-    api.nvim_set_hl(0, 'TitleFileIcon', {
-      background = config.ui.colors.title_bg,
-      foreground = data[2],
-      default = true,
-    })
+  local data = libs.icon_from_devicon(vim.bo.filetype)
+  if data[1] then
+    table.insert(opts.title, 1, { data[1] .. ' ', data[2] })
   end
 end
 
@@ -132,9 +138,8 @@ local function get_uri_data(result)
 
   local start_line = range.start.line
   local start_char_pos = range.start.character
-  local end_char_pos = range['end'].character
 
-  return bufnr, link, start_line, start_char_pos, end_char_pos
+  return bufnr, link, start_line, start_char_pos
 end
 
 local in_process = 0
@@ -185,74 +190,58 @@ function def:peek_definition()
       return
     end
 
-    local bufnr, link, start_line, start_char_pos, end_char_pos = get_uri_data(result)
+    local bufnr, link, start_line, start_char_pos = get_uri_data(result)
+    if not bufnr then
+      return
+    end
+
     node.link = link
+    local opts = {}
+    if list_length() == 0 then
+      local cur_winline = fn.winline()
+      local max_height = math.floor(vim.o.lines * 0.5)
+      local max_width = math.floor(vim.o.columns * 0.6)
+      opts = {
+        relative = 'cursor',
+        style = 'minimal',
+        no_override_size = true,
+        height = max_height,
+        width = max_width,
+      }
+      if vim.o.lines - opts.height - cur_winline < 0 then
+        vim.cmd('normal! zz')
+        local keycode = api.nvim_replace_termcodes('5<C-e>', true, false, true)
+        api.nvim_feedkeys(keycode, 'x', false)
+      end
+    else
+      opts = api.nvim_win_get_config(cur_winid)
+    end
 
-    local opts = {
-      relative = 'cursor',
-      style = 'minimal',
-    }
-    local max_width = math.floor(vim.o.columns * 0.6)
-    local max_height = math.floor(vim.o.lines * 0.6)
-
-    opts.width = max_width
-    opts.height = max_height
-
-    opts = lsp.util.make_floating_popup_options(max_width, max_height, opts)
-
-    opts.row = opts.row + 1
     local content_opts = {
       contents = {},
       enter = true,
+      bufnr = bufnr,
       highlight = {
         border = 'DefinitionBorder',
         normal = 'DefinitionNormal',
       },
     }
     --@deprecated when 0.9 release
-    if fn.has('nvim-0.9') == 1 then
+    if fn.has('nvim-0.9') == 1 and config.ui.title then
       self:title_text(opts, link)
     end
 
-    local window = require('lspsaga.window')
     _, node.winid = window.create_win_with_border(content_opts, opts)
     if config.symbol_in_winbar.enable then
       api.nvim_win_set_var(node.winid, 'disable_winbar', true)
     end
-    vim.wo[node.winid].winbar = ''
     vim.opt_local.modifiable = true
-    api.nvim_win_set_buf(node.winid, bufnr)
     node.bufnr = bufnr
-    vim.bo[node.bufnr].bufhidden = 'wipe'
     --set the initail cursor pos
     api.nvim_win_set_cursor(node.winid, { start_line + 1, start_char_pos })
     vim.cmd('normal! zt')
 
-    if api.nvim_buf_get_name(node.bufnr) == api.nvim_buf_get_name(node.main_bufnr) then
-      node.def_win_ns = api.nvim_create_namespace('DefinitionWinNs-' .. node.bufnr)
-      api.nvim_win_set_hl_ns(node.winid, node.def_win_ns)
-      api.nvim_buf_add_highlight(
-        bufnr,
-        node.def_win_ns,
-        'DefinitionSearch',
-        start_line,
-        start_char_pos,
-        end_char_pos
-      )
-
-      api.nvim_win_set_hl_ns(node.winid, node.def_win_ns)
-      api.nvim_set_hl(node.def_win_ns, 'Normal', {
-        background = config.ui.colors.normal_bg,
-      })
-      api.nvim_set_hl(node.def_win_ns, 'SignColumn', {
-        background = config.ui.colors.normal_bg,
-      })
-      api.nvim_set_hl(node.def_win_ns, 'DefinitionBorder', {
-        background = config.ui.colors.normal_bg,
-      })
-    end
-
-    self:apply_aciton_keys(bufnr, { start_line, start_char_pos })
+    self:apply_aciton_keys({ start_line, start_char_pos })
     self:event(bufnr)
     push(node)
   end)
@@ -260,17 +249,17 @@ end
 
 function def:event(bufnr)
   api.nvim_create_autocmd('QuitPre', {
-    buffer = bufnr,
     once = true,
-    callback = function(opt)
-      local winid = fn.bufwinid(opt.buf)
-      local node = find_node(winid)
+    callback = function()
+      local curwin = vim.api.nvim_get_current_win()
+      local node = find_node(curwin)
       if not node then
         return
       end
-      pcall(api.nvim_buf_clear_namespace, bufnr, node.def_win_ns, 0, -1)
+      remove(node)
     end,
   })
+
   api.nvim_create_autocmd('WinClosed', {
     buffer = bufnr,
     callback = function(opt)
@@ -283,15 +272,13 @@ function def:event(bufnr)
         if not node then
           return
         end
-        pcall(api.nvim_buf_clear_namespace, node.def_win_ns)
       end
       if #wins == 1 then
         for _, map in pairs(config.definition) do
           pcall(api.nvim_buf_del_keymap, opt.buf, 'n', map)
         end
       end
-      local key = vim.tbl_keys(ctx)[1]
-      if ctx[key].length == 1 then
+      if ctx.length == 1 then
         api.nvim_del_autocmd(opt.id)
       end
     end,
@@ -309,7 +296,7 @@ local function unpack_maps()
   return res
 end
 
-function def:apply_aciton_keys(bufnr, pos)
+function def:apply_aciton_keys(pos)
   local maps = unpack_maps()
   local opt = { buffer = true, nowait = true }
 
@@ -319,12 +306,10 @@ function def:apply_aciton_keys(bufnr, pos)
     if not node then
       return
     end
-    if node.def_win_ns then
-      api.nvim_buf_clear_namespace(bufnr, node.def_win_ns, 0, -1)
-    end
     self:close_window(node.winid)
     return node
   end
+
   for action, key in pairs(maps) do
     keymap.set('n', key, function()
       local node = node_with_close()

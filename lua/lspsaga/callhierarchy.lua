@@ -1,6 +1,7 @@
 local api, fn, lsp, uv = vim.api, vim.fn, vim.lsp, vim.loop
 local config = require('lspsaga').config
 local libs = require('lspsaga.libs')
+local window = require('lspsaga.window')
 local call_conf, ui = config.callhierarchy, config.ui
 local insert = table.insert
 
@@ -117,7 +118,7 @@ function ch:call_hierarchy(item, parent)
     if not res or next(res) == nil then
       return
     end
-    local kind = require('lspsaga.highlight').get_kind()
+    local kind = require('lspsaga.lspkind').get_kind()
     if not parent then
       local icons = {}
       for i, v in pairs(res) do
@@ -331,37 +332,51 @@ function ch:render_win()
     insert(content, v.name)
   end
 
+  local side_char = window.border_chars()['top'][config.ui.border]
   local content_opt = {
     contents = content,
     filetype = 'lspsagacallhierarchy',
     buftype = 'nofile',
     enter = true,
+    border_side = {
+      ['right'] = ' ',
+      ['righttop'] = side_char,
+      ['rightbottom'] = side_char,
+    },
     highlight = {
       normal = 'CallHierarchyNormal',
       border = 'CallHierarchyBorder',
     },
   }
 
+  local cur_winline = fn.winline()
+  local max_height = math.floor(vim.o.lines * 0.4)
+  if vim.o.lines - cur_winline - 6 < max_height then
+    vim.cmd('normal! zz')
+    local keycode = api.nvim_replace_termcodes('5<C-e>', true, false, true)
+    api.nvim_feedkeys(keycode, 'x', false)
+  end
+
   local opt = {
     relative = 'editor',
-    row = math.floor(vim.o.lines * 0.2),
-    col = math.floor(vim.o.columns * 0.1),
-    height = math.floor(vim.o.lines * 0.2),
-    width = math.floor(vim.o.columns * 0.4),
+    win = api.nvim_get_current_win(),
+    row = fn.winline() + 1,
+    col = 10,
+    height = math.floor(vim.o.lines * 0.4),
+    width = math.floor(vim.o.columns * 0.3),
     no_size_override = true,
   }
 
   if fn.has('nvim-0.9') == 1 then
-    local theme = require('lspsaga').theme()
     local icon = self.method == 'callHierarchy/incomingCalls' and ui.incoming or ui.outgoing
     opt.title = {
-      { theme.left, 'TitleSymbol' },
-      { icon, 'TitleIcon' },
-      { ' ' .. self.method:match('/(%w+)Calls$'), 'TitleString' },
-      { theme.right, 'TitleSymbol' },
+      { icon, 'ArrowIcon' },
     }
+    opt.title_pos = 'right'
+    api.nvim_set_hl(0, 'ArrowIcon', { link = 'CallHierarchyBorder' })
   end
-  self.bufnr, self.winid = self.window.create_win_with_border(content_opt, opt)
+  self.bufnr, self.winid = window.create_win_with_border(content_opt, opt)
+  api.nvim_win_set_cursor(self.winid, { 2, 9 })
   api.nvim_create_autocmd('CursorMoved', {
     buffer = self.bufnr,
     callback = function()
@@ -463,24 +478,25 @@ function ch:preview()
     return
   end
 
+  local winconfig = api.nvim_win_get_config(self.winid)
   local opt = {
-    relative = 'editor',
-    width = math.floor(vim.o.columns * 0.7),
-    height = math.floor(vim.o.lines * 0.4),
+    relative = winconfig.relative,
+    row = winconfig.row[false],
+    height = winconfig.height,
+    col = winconfig.col[false] + 2 + winconfig.width,
     no_size_override = true,
   }
+  opt.width = vim.o.columns - opt.col - 6
 
-  local win_conf = api.nvim_win_get_config(self.winid)
-  if vim.o.columns - (4 + win_conf.col[false] + win_conf.width) > opt.width then
-    opt.row = win_conf.row[false]
-    opt.col = win_conf.col[false] + win_conf.width + 4
-  else
-    opt.row = win_conf.row[false] + win_conf.height + 4
-    opt.col = win_conf.col[false]
-  end
-
+  local rtop = window.combine_char()['righttop'][config.ui.border]
+  local rbottom = window.combine_char()['rightbottom'][config.ui.border]
   local content_opt = {
     contents = {},
+    bufnr = data[1],
+    border_side = {
+      ['lefttop'] = rtop,
+      ['leftbottom'] = rbottom,
+    },
     highlight = {
       border = 'ActionPreviewBorder',
       normal = 'CallHierarchyNormal',
@@ -488,15 +504,12 @@ function ch:preview()
     enter = false,
   }
 
-  if fn.has('nvim-0.9') == 1 then
+  if fn.has('nvim-0.9') == 1 and ui.title then
     local fname_parts = libs.get_path_info(data[1], 2)
     local tbl = libs.icon_from_devicon(vim.bo[self.main_buf].filetype, true)
-    local theme = require('lspsaga').theme()
     opt.title = {
-      { theme.left, 'TitleSymbol' },
       { (tbl[1] or '') .. ' ', 'TitleFileIcon' },
       { table.concat(fname_parts or {}, libs.path_sep), 'TitleString' },
-      { theme.right, 'TitleSymbol' },
     }
     if #tbl == 2 then
       api.nvim_set_hl(0, 'TitleFileIcon', {
@@ -507,42 +520,20 @@ function ch:preview()
     end
   end
 
-  self.preview_bufnr, self.preview_winid = self.window.create_win_with_border(content_opt, opt)
+  self.preview_bufnr, self.preview_winid = window.create_win_with_border(content_opt, opt)
   if config.symbol_in_winbar.enable then
     api.nvim_win_set_var(self.preview_winid, 'disable_winbar', true)
   end
-  api.nvim_win_set_buf(self.preview_winid, data[1])
   self.file_buf = data[1]
   vim.bo[data[1]].filetype = vim.bo[self.main_buf].filetype
   vim.bo[data[1]].modifiable = true
   api.nvim_win_set_cursor(self.preview_winid, { data[2].start.line, data[2].start.character })
   vim.wo[self.preview_winid].signcolumn = 'no'
-  if data[1] == self.main_buf then
-    local ns = api.nvim_create_namespace('CallHierarchy-' .. data[1])
-    api.nvim_win_set_hl_ns(self.preview_winid, ns)
-    api.nvim_win_set_hl_ns(self.preview_winid, ns)
-    api.nvim_set_hl(self.preview_winid, 'Normal', {
-      background = config.ui.colors.normal_bg,
-    })
-    api.nvim_set_hl(self.preview_winid, 'CallHierarchyBorder', {
-      background = config.ui.colors.normal_bg,
-    })
-    api.nvim_create_autocmd('WinClosed', {
-      callback = function(opt)
-        local winid = api.nvim_get_current_win()
-        if winid == self.preview_winid then
-          api.nvim_buf_clear_namespace(self.preview_bufnr, ns, 0, -1)
-          api.nvim_del_autocmd(opt.id)
-        end
-      end,
-    })
-  end
 end
 
 function ch:incoming_calls()
   self.cword = fn.expand('<cword>')
   self.method = get_method(2)
-  self.window = require('lspsaga.window')
   self.data = {}
   self:send_prepare_call()
 end
@@ -550,7 +541,6 @@ end
 function ch:outgoing_calls()
   self.cword = fn.expand('<cword>')
   self.method = get_method(3)
-  self.window = require('lspsaga.window')
   self.data = {}
   self:send_prepare_call()
 end

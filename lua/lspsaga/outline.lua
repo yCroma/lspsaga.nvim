@@ -68,13 +68,13 @@ local function get_hi_prefix()
 end
 
 local function get_kind()
-  return require('lspsaga.highlight').get_kind()
+  return require('lspsaga.lspkind').get_kind()
 end
 
 local function find_node(data, line)
-  for idx, node in pairs(data or {}) do
+  for kind, node in pairs(data or {}) do
     if node.winline == line then
-      return idx, node
+      return kind, node
     end
   end
 end
@@ -220,16 +220,17 @@ end
 
 function ot:expand_collapse()
   local curline = api.nvim_win_get_cursor(0)[1]
-  local idx, node = find_node(self.data, curline)
+  local kind_idx, node = find_node(self.data, curline)
   if not node then
     return
   end
   local prefix = get_hi_prefix()
   local kind = get_kind()
 
-  local function increase_or_reduce(pos, num)
+  local function increase_or_reduce(idx, num)
     for k, v in pairs(self.data) do
-      if pos > k then
+      if k > idx then
+        self.data[k].winline = self.data[k].winline + num
         for _, item in pairs(v.data) do
           item.winline = item.winline + num
         end
@@ -256,7 +257,7 @@ function ot:expand_collapse()
       5,
       -1
     )
-    increase_or_reduce(idx, -#node.data)
+    increase_or_reduce(kind_idx, -#node.data)
     return
   end
 
@@ -287,7 +288,7 @@ function ot:expand_collapse()
     end
   end
 
-  increase_or_reduce(idx, #node.data)
+  increase_or_reduce(kind_idx, #node.data)
 end
 
 function ot:auto_refresh()
@@ -450,8 +451,8 @@ function ot:close_when_last()
         end
         local bufnr = api.nvim_create_buf(true, true)
         api.nvim_win_set_buf(0, bufnr)
+        clean_ctx()
       end
-      clean_ctx()
     end,
     desc = 'Outline auto close when last one',
   })
@@ -469,7 +470,7 @@ function ot:render_outline(buf, symbols)
   local fname = libs.get_path_info(buf, 1)
   local data = libs.icon_from_devicon(vim.bo[buf].filetype)
   ---@diagnostic disable-next-line: need-check-nil
-  insert(lines, ' ' .. data[1] .. ' ' .. fname[1])
+  insert(lines, ' ' .. (data[1] or '') .. ' ' .. fname[1])
   local prefix = get_hi_prefix()
   local hi = {}
 
@@ -539,11 +540,6 @@ end
 
 function ot:outline(no_close)
   no_close = no_close or false
-  if self.pending_request then
-    vim.notify('[lspsaga.nvim] there already have a request for outline please wait')
-    return
-  end
-
   if self.winid and api.nvim_win_is_valid(self.winid) and not no_close then
     api.nvim_win_close(self.winid, true)
     clean_ctx()
@@ -551,6 +547,15 @@ function ot:outline(no_close)
   end
 
   local current_buf = api.nvim_get_current_buf()
+  if #lsp.get_active_clients({ bufnr = current_buf }) == 0 then
+    vim.notify('[Lspsaga.nvim] there is no server attatched this buffer')
+    return
+  end
+  if self.pending_request then
+    vim.notify('[lspsaga.nvim] there already have a request for outline please wait')
+    return
+  end
+
   local symbols = get_cache_symbols(current_buf)
   self.group = api.nvim_create_augroup('LspsagaOutline', { clear = false })
   self.render_buf = current_buf

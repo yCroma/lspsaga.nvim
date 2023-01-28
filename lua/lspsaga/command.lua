@@ -10,8 +10,8 @@ local subcommands = {
   goto_definition = function()
     require('lspsaga.definition'):goto_definition()
   end,
-  rename = function()
-    require('lspsaga.rename'):lsp_rename()
+  rename = function(arg)
+    require('lspsaga.rename'):lsp_rename(arg)
   end,
   hover_doc = function(arg)
     require('lspsaga.hover'):render_hover_doc(arg)
@@ -26,10 +26,10 @@ local subcommands = {
     require('lspsaga.diagnostic'):show_buf_diagnsotic(arg, 'buffer')
   end,
   diagnostic_jump_next = function()
-    require('lspsaga.diagnostic').goto_next()
+    require('lspsaga.diagnostic'):goto_next()
   end,
   diagnostic_jump_prev = function()
-    require('lspsaga.diagnostic').goto_prev()
+    require('lspsaga.diagnostic'):goto_prev()
   end,
   code_action = function()
     require('lspsaga.codeaction'):code_action()

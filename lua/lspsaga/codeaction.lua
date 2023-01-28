@@ -1,6 +1,7 @@
 local api, util, fn, lsp = vim.api, vim.lsp.util, vim.fn, vim.lsp
 local config = require('lspsaga').config
 local window = require('lspsaga.window')
+local libs = require('lspsaga.libs')
 local act = {}
 local ctx = {}
 
@@ -9,17 +10,24 @@ function act.__newindex(t, k, v)
   rawset(t, k, v)
 end
 
+local function clean_ctx()
+  for k, _ in pairs(ctx) do
+    ctx[k] = nil
+  end
+end
+
 function act:action_callback()
   local contents = {}
 
   for index, client_with_actions in pairs(self.action_tuples) do
     local action_title = ''
+    local indent = index > 9 and '' or ' '
     if #client_with_actions ~= 2 then
       vim.notify('There has something wrong in aciton_tuples')
       return
     end
     if client_with_actions[2].title then
-      action_title = '[' .. index .. ']' .. ' ' .. client_with_actions[2].title
+      action_title = indent .. index .. '  ' .. client_with_actions[2].title
     end
     table.insert(contents, action_title)
   end
@@ -36,13 +44,16 @@ function act:action_callback()
   }
 
   local opt = {}
+  local max_height = math.floor(vim.o.lines * 0.5)
+  opt.height = max_height < #contents and max_height or #contents
+  local max_width = math.floor(vim.o.columns * 0.7)
+  local max_len = window.get_max_content_length(contents)
+  opt.width = max_len + 10 < max_width and max_len + 5 or max_width
+  opt.no_size_override = true
 
-  if fn.has('nvim-0.9') == 1 then
-    local theme = require('lspsaga').theme()
+  if fn.has('nvim-0.9') == 1 and config.ui.title then
     opt.title = {
-      { theme.left, 'TitleSymbol' },
       { config.ui.code_action .. ' CodeActions', 'TitleString' },
-      { theme.right, 'TitleSymbol' },
     }
   end
 
@@ -52,98 +63,52 @@ function act:action_callback()
   -- initial position in code action window
   api.nvim_win_set_cursor(self.action_winid, { 1, 1 })
 
-  local group = api.nvim_create_augroup('CodeAction' .. self.bufnr, { clear = true })
   api.nvim_create_autocmd('CursorMoved', {
-    group = group,
     buffer = self.action_bufnr,
     callback = function()
       self:set_cursor()
     end,
   })
 
-  api.nvim_create_autocmd('QuitPre', {
-    group = group,
-    buffer = self.action_bufnr,
-    callback = function()
-      self:quit_action_window()
-    end,
-  })
-
-  local ns = api.nvim_create_namespace('CodeAction')
   for i = 1, #contents, 1 do
-    api.nvim_buf_add_highlight(self.action_bufnr, -1, 'CodeActionText', i - 1, 0, -1)
-
-    api.nvim_buf_set_extmark(self.action_bufnr, ns, i - 1, 0, {
-      end_col = 3,
-      conceal = '◉',
-    })
-    api.nvim_buf_add_highlight(self.action_bufnr, 0, 'CodeActionText', i - 1, 0, -1)
+    local row = i - 1
+    api.nvim_buf_add_highlight(self.action_bufnr, -1, 'CodeActionText', row, 0, -1)
+    api.nvim_buf_add_highlight(self.action_bufnr, 0, 'CodeActionNumber', row, 0, 2)
   end
 
-  local libs = require('lspsaga.libs')
   -- dsiable some move keys in codeaction
   libs.disable_move_keys(self.action_bufnr)
 
   self:apply_action_keys()
   if config.code_action.num_shortcut then
-    self:num_shortcut()
+    self:num_shortcut(self.action_bufnr)
+  end
+end
+
+local function map_keys(mode, keys, action, options)
+  if type(keys) == 'string' then
+    keys = { keys }
+  end
+  for _, key in ipairs(keys) do
+    vim.keymap.set(mode, key, action, options)
   end
 end
 
 function act:apply_action_keys()
-  vim.keymap.set('n', config.code_action.keys.exec, function()
+  map_keys('n', config.code_action.keys.exec, function()
     self:do_code_action()
   end, { buffer = self.action_bufnr })
 
-  vim.keymap.set('n', config.code_action.keys.quit, function()
-    self:quit_action_window()
+  map_keys('n', config.code_action.keys.quit, function()
+    self:close_action_window()
+    clean_ctx()
   end, { buffer = self.action_bufnr })
-end
-
-function act:get_clients(results, options)
-  local function action_filter(a)
-    -- filter by specified action kind
-    if options and options.context and options.context.only then
-      if not a.kind then
-        return false
-      end
-      local found = false
-      for _, o in ipairs(options.context.only) do
-        -- action kinds are hierarchical with . as a separator: when requesting only
-        -- 'quickfix' this filter allows both 'quickfix' and 'quickfix.foo', for example
-        if a.kind:find('^' .. o .. '$') or a.kind:find('^' .. o .. '%.') then
-          found = true
-          break
-        end
-      end
-      if not found then
-        return false
-      end
-    end
-    -- filter by user function
-    if options and options.filter and not options.filter(a) then
-      return false
-    end
-    -- no filter removed this action
-    return true
-  end
-
-  if self.action_tuples == nil then
-    self.action_tuples = {}
-  end
-
-  for client_id, result in pairs(results) do
-    for _, action in pairs(result.result or {}) do
-      if action_filter(action) then
-        table.insert(self.action_tuples, { client_id, action })
-      end
-    end
-  end
 end
 
 function act:send_code_action_request(main_buf, options, cb)
   local diagnostics = lsp.diagnostic.get_line_diagnostics(main_buf)
-  local context = { diagnostics = diagnostics }
+  self.bufnr = main_buf
+  local ctx_diags = { diagnostics = diagnostics }
   local params
   local mode = api.nvim_get_mode().mode
   options = options or {}
@@ -173,18 +138,26 @@ function act:send_code_action_request(main_buf, options, cb)
   else
     params = util.make_range_params()
   end
-  params.context = context
-  if not self.ctx then
-    self.ctx = { bufnr = self.bufnr, method = 'textDocument/codeAction', params = params }
+  params.context = ctx_diags
+  if not self.enriched_ctx then
+    self.enriched_ctx = { bufnr = main_buf, method = 'textDocument/codeAction', params = params }
   end
 
-  lsp.buf_request_all(self.bufnr, 'textDocument/codeAction', params, function(results)
+  lsp.buf_request_all(main_buf, 'textDocument/codeAction', params, function(results)
     self.pending_request = false
-    self:get_clients(results)
+    self.action_tuples = {}
+
+    for client_id, result in pairs(results) do
+      for _, action in pairs(result.result or {}) do
+        table.insert(self.action_tuples, { client_id, action })
+      end
+    end
+
     if #self.action_tuples == 0 then
       vim.notify('No code actions available', vim.log.levels.INFO)
       return
     end
+
     if cb then
       cb()
     end
@@ -203,11 +176,14 @@ function act:set_cursor()
   self:action_preview(self.action_winid, self.bufnr)
 end
 
-function act:num_shortcut()
-  for num, _ in pairs(self.action_tuples) do
+function act:num_shortcut(bufnr, callback)
+  for num, _ in pairs(self.action_tuples or {}) do
     vim.keymap.set('n', tostring(num), function()
+      if callback then
+        callback()
+      end
       self:do_code_action(num)
-    end, { buffer = self.action_bufnr })
+    end, { buffer = bufnr })
   end
 end
 
@@ -220,10 +196,9 @@ function act:code_action(options)
     return
   end
   self.pending_request = true
-  self.bufnr = api.nvim_get_current_buf()
   options = options or {}
 
-  self:send_code_action_request(self.bufnr, options, function()
+  self:send_code_action_request(api.nvim_get_current_buf(), options, function()
     self:action_callback()
   end)
 end
@@ -236,7 +211,7 @@ function act:apply_action(action, client)
     local command = type(action.command) == 'table' and action.command or action
     local func = client.commands[command.command] or lsp.commands[command.command]
     if func then
-      local enriched_ctx = vim.deepcopy(self.ctx)
+      local enriched_ctx = vim.deepcopy(self.enriched_ctx)
       enriched_ctx.client_id = client.id
       func(command, enriched_ctx)
     else
@@ -245,7 +220,7 @@ function act:apply_action(action, client)
         arguments = command.arguments,
         workDoneToken = command.workDoneToken,
       }
-      client.request('workspace/executeCommand', params, nil, self.ctx.bufnr)
+      client.request('workspace/executeCommand', params, nil, self.enriched_ctx.bufnr)
     end
   end
 end
@@ -256,7 +231,7 @@ function act:do_code_action(num)
     number = tonumber(num)
   else
     local cur_text = api.nvim_get_current_line()
-    number = cur_text:match('%[(%d)%]')
+    number = cur_text:match('(%d+)%s+%w')
     number = tonumber(number)
   end
 
@@ -283,7 +258,8 @@ function act:do_code_action(num)
   else
     self:apply_action(action, client)
   end
-  self:quit_action_window()
+  self:close_action_window()
+  clean_ctx()
 end
 
 function act:get_action_diff(num, main_buf)
@@ -300,72 +276,45 @@ function act:get_action_diff(num, main_buf)
   then
     local results = lsp.buf_request_sync(main_buf, 'codeAction/resolve', action, 1000)
     action = results[client.id].result
+    if not action then
+      return
+    end
   end
 
   if not action.edit then
     return
   end
 
-  local text_edits
+  local all_changes = {}
   if action.edit.documentChanges then
-    text_edits = action.edit.documentChanges[1].edits
+    for _, item in pairs(action.edit.documentChanges) do
+      if not all_changes[item.textDocument.uri] then
+        all_changes[item.textDocument.uri] = {}
+      end
+      for _, edit in pairs(item.edits) do
+        table.insert(all_changes[item.textDocument.uri], edit)
+      end
+    end
   elseif action.edit.changes then
-    text_edits = action.edit.changes[vim.uri_from_bufnr(main_buf)]
+    all_changes = action.edit.changes
   end
 
-  if not text_edits then
+  if not (all_changes and not vim.tbl_isempty(all_changes)) then
     return
   end
-  -- print(vim.inspect(text_edits))
 
-  local old_lines = {}
-  local new_text = {}
-  local remove_whole_line = false
   local tmp_buf = api.nvim_create_buf(false, false)
-  for _, v in pairs(text_edits) do
-    if #v.newText == 0 and v.range['end'].character - v.range.start.character == 1 then
-      remove_whole_line = true
-    end
-  end
+  vim.bo[tmp_buf].bufhidden = 'wipe'
+  local lines = api.nvim_buf_get_lines(main_buf, 0, -1, false)
+  api.nvim_buf_set_lines(tmp_buf, 0, -1, false, lines)
 
-  for _, v in pairs(text_edits) do
-    if #v.newText == 0 then
-      goto skip
-    end
-
-    local start = v.range.start
-    local _end = v.range['end']
-    local old_text = api.nvim_buf_get_lines(main_buf, start.line, _end.line + 1, false)[1]
-    if not old_text then
-      goto skip
-    end
-    if #old_lines == 0 then
-      table.insert(old_lines, old_text .. '\n')
-    end
-    api.nvim_buf_set_lines(tmp_buf, 0, -1, false, { old_text })
-    v.newText = v.newText:find('\r\n') and v.newText:gsub('\r\n', '\n') or v.newText
-    local newText = v.newText:find('\n') and vim.split(v.newText, '\n') or { v.newText }
-    local ecol = api.nvim_strwidth(old_text)
-    if start.character ~= _end.character then
-      if not remove_whole_line then
-        if start.character < _end.character then
-          api.nvim_buf_set_text(tmp_buf, 0, start.character, -1, _end.character, newText)
-        end
-      else
-        api.nvim_buf_set_text(tmp_buf, 0, start.character, -1, ecol, newText)
-      end
-    elseif start.character == _end.character then
-      api.nvim_buf_set_text(tmp_buf, 0, start.character, -1, _end.character, newText)
-    end
-    local buf_lines = api.nvim_buf_get_lines(tmp_buf, 0, -1, false)
-    for _, item in pairs(buf_lines) do
-      table.insert(new_text, item)
-    end
-    ::skip::
+  for _, changes in pairs(all_changes) do
+    util.apply_text_edits(changes, tmp_buf, client.offset_encoding)
   end
-  local new = table.concat(new_text, '\n') .. '\n'
+  local data = api.nvim_buf_get_lines(tmp_buf, 0, -1, false)
   api.nvim_buf_delete(tmp_buf, { force = true })
-  return vim.diff(table.concat(old_lines, ''), new)
+  local diff = vim.diff(table.concat(lines, '\n'), table.concat(data, '\n'))
+  return diff
 end
 
 function act:action_preview(main_winid, main_buf)
@@ -374,7 +323,7 @@ function act:action_preview(main_winid, main_buf)
     self.preview_winid = nil
   end
   local line = api.nvim_get_current_line()
-  local num = line:match('%[([1-9])%]')
+  local num = line:match('(%d+)%s+%w')
   if not num then
     return
   end
@@ -388,11 +337,13 @@ function act:action_preview(main_winid, main_buf)
   table.remove(tbl, 1)
 
   local win_conf = api.nvim_win_get_config(main_winid)
-
   local opt = {}
   opt.relative = 'editor'
+  local max_height = math.floor(vim.o.lines * 0.4)
+  opt.height = #tbl > max_height and max_height or #tbl
+
   if win_conf.anchor:find('^N') then
-    if win_conf.row[false] - #tbl > 0 then
+    if win_conf.row[false] - opt.height > 0 then
       opt.row = win_conf.row[false]
       opt.anchor = win_conf.anchor:gsub('N', 'S')
     else
@@ -403,7 +354,7 @@ function act:action_preview(main_winid, main_buf)
       opt.anchor = win_conf.anchor
     end
   else
-    if win_conf.row[false] - win_conf.height - #tbl - 4 > 0 then
+    if win_conf.row[false] - win_conf.height - opt.height - 4 > 0 then
       opt.row = win_conf.row[false] - win_conf.height - 4
       opt.anchor = win_conf.anchor
     else
@@ -412,19 +363,21 @@ function act:action_preview(main_winid, main_buf)
     end
   end
   opt.col = win_conf.col[false]
-  local max_width = math.floor(vim.o.columns * 0.4)
-  opt.width = win_conf.width < max_width and max_width or win_conf.width
-  opt.height = #tbl
+
+  local max_width = math.floor(vim.o.columns * 0.6)
+  local max_len = window.get_max_content_length(tbl)
+
+  opt.width = max_len < max_width and max_len or max_width
   opt.no_size_override = true
 
-  if fn.has('nvim-0.9') == 1 then
+  if fn.has('nvim-0.9') == 1 and config.ui.title then
     opt.title = { { 'Action Preivew', 'ActionPreviewTitle' } }
   end
 
   local content_opts = {
     contents = tbl,
     filetype = 'diff',
-    buftype = 'nofile',
+    bufhidden = 'wipe',
     highlight = {
       normal = 'ActionPreviewNormal',
       border = 'ActionPreviewBorder',
@@ -437,18 +390,17 @@ function act:action_preview(main_winid, main_buf)
   return self.preview_winid
 end
 
-function act:clear_tmp_data()
-  for k, _ in pairs(ctx) do
-    ctx[k] = nil
+function act:close_action_window()
+  if self.action_winid and api.nvim_win_is_valid(self.action_winid) then
+    api.nvim_win_close(self.action_winid, true)
+  end
+  if self.preview_winid and api.nvim_win_is_valid(self.preview_winid) then
+    api.nvim_win_close(self.preview_winid, true)
   end
 end
 
-function act:quit_action_window()
-  if self.action_bufnr == 0 and self.action_winid == 0 then
-    return
-  end
-  window.nvim_close_valid_window({ self.action_winid, self.preview_winid })
-  self:clear_tmp_data()
+function act:clean_context()
+  clean_ctx()
 end
 
 return setmetatable(ctx, act)
