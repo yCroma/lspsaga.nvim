@@ -5,10 +5,16 @@ local subcommands = {
     require('lspsaga.finder'):lsp_finder()
   end,
   peek_definition = function()
-    require('lspsaga.definition'):peek_definition()
+    require('lspsaga.definition'):peek_definition(1)
   end,
   goto_definition = function()
-    require('lspsaga.definition'):goto_definition()
+    require('lspsaga.definition'):goto_definition(1)
+  end,
+  peek_type_definition = function()
+    require('lspsaga.definition'):peek_definition(2)
+  end,
+  goto_type_definition = function()
+    require('lspsaga.definition'):goto_definition(2)
   end,
   rename = function(arg)
     require('lspsaga.rename'):lsp_rename(arg)
@@ -23,7 +29,7 @@ local subcommands = {
     require('lspsaga.diagnostic'):show_diagnostics(arg, 'line')
   end,
   show_buf_diagnostics = function()
-    require('lspsaga.diagnostic'):show_buf_diagnsotic(arg, 'buffer')
+    require('lspsaga.diagnostic'):show_buf_diagnostic(arg)
   end,
   diagnostic_jump_next = function()
     require('lspsaga.diagnostic'):goto_next()
@@ -38,10 +44,10 @@ local subcommands = {
     require('lspsaga.outline'):outline()
   end,
   incoming_calls = function()
-    require('lspsaga.callhierarchy'):incoming_calls()
+    require('lspsaga.callhierarchy'):send_method(2)
   end,
   outgoing_calls = function()
-    require('lspsaga.callhierarchy'):outgoing_calls()
+    require('lspsaga.callhierarchy'):send_method(3)
   end,
   term_toggle = function(cmd)
     require('lspsaga.floaterm'):open_float_terminal(cmd)

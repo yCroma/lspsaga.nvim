@@ -8,6 +8,7 @@ function M.border_chars()
       ['double'] = '╔',
       ['rounded'] = '╭',
       ['solid'] = ' ',
+      ['shadow'] = '',
     },
 
     top = {
@@ -15,42 +16,49 @@ function M.border_chars()
       ['double'] = '═',
       ['rounded'] = '─',
       ['solid'] = ' ',
+      ['shadow'] = '',
     },
     righttop = {
       ['single'] = '┐',
       ['double'] = '╗',
       ['rounded'] = '╮',
       ['solid'] = ' ',
+      ['shadow'] = ' ',
     },
     right = {
       ['single'] = '│',
       ['double'] = '║',
       ['rounded'] = '│',
       ['solid'] = ' ',
+      ['shadow'] = ' ',
     },
     rightbottom = {
       ['single'] = '┘',
       ['double'] = '╝',
       ['rounded'] = '╯',
       ['solid'] = ' ',
+      ['shadow'] = ' ',
     },
     bottom = {
       ['single'] = '─',
       ['double'] = '═',
       ['rounded'] = '─',
       ['solid'] = ' ',
+      ['shadow'] = ' ',
     },
     leftbottom = {
       ['single'] = '└',
       ['double'] = '╚',
       ['rounded'] = '╰',
       ['solid'] = ' ',
+      ['shadow'] = ' ',
     },
     left = {
       ['single'] = '│',
       ['double'] = '║',
       ['rounded'] = '│',
       ['solid'] = ' ',
+      ['shadow'] = '',
     },
   }
 end
@@ -72,7 +80,7 @@ function M.combine_char()
   }
 end
 
-local function combine_border(style, side, hi)
+function M.combine_border(style, side, hi)
   local border_chars = M.border_chars()
   local order =
     { 'lefttop', 'top', 'righttop', 'right', 'rightbottom', 'bottom', 'leftbottom', 'left' }
@@ -80,7 +88,7 @@ local function combine_border(style, side, hi)
   local res = {}
 
   for _, pos in ipairs(order) do
-    if vim.tbl_contains(vim.tbl_keys(side), pos) then
+    if not vim.tbl_isempty(side) and vim.tbl_contains(vim.tbl_keys(side), pos) then
       table.insert(res, { side[pos], hi })
     else
       table.insert(res, { border_chars[pos][style], hi })
@@ -100,7 +108,7 @@ local function make_floating_popup_options(width, height, opts)
   })
   local new_option = {}
 
-  new_option.style = 'minimal'
+  new_option.style = opts.style or 'minimal'
   new_option.width = width
   new_option.height = height
 
@@ -108,14 +116,13 @@ local function make_floating_popup_options(width, height, opts)
     new_option.focusable = opts.focusable
   end
 
-  if opts.noautocmd ~= nil then
-    new_option.noautocmd = opts.noautocmd
-  end
+  new_option.noautocmd = opts.noautocmd or true
 
   new_option.relative = opts.relative and opts.relative or 'cursor'
   new_option.anchor = opts.anchor or nil
   if new_option.relative == 'win' then
     new_option.bufpos = opts.bufpos or nil
+    new_option.win = opts.win or nil
   end
 
   if opts.title then
@@ -123,7 +130,9 @@ local function make_floating_popup_options(width, height, opts)
     new_option.title_pos = opts.title_pos or 'center'
   end
 
-  if opts.row == nil and opts.col == nil then
+  new_option.zindex = opts.zindex or nil
+
+  if not opts.row and not opts.col and not opts.bufpos then
     local lines_above = vim.fn.winline() - 1
     local lines_below = vim.fn.winheight(0) - lines_above
     new_option.anchor = ''
@@ -216,7 +225,7 @@ function M.create_win_with_border(content_opts, opts)
     opts.border = 'none'
   else
     opts.border = content_opts.border_side
-        and combine_border(config.ui.border, content_opts.border_side, border_hl)
+        and M.combine_border(config.ui.border, content_opts.border_side, border_hl)
       or config.ui.border
   end
 
@@ -282,7 +291,14 @@ function M.get_max_content_length(contents)
   })
   local cells = {}
   for _, v in pairs(contents) do
-    table.insert(cells, api.nvim_strwidth(v))
+    if v:find('\n.') then
+      local tbl = vim.split(v, '\n')
+      vim.tbl_map(function(s)
+        table.insert(cells, #s)
+      end, tbl)
+    else
+      table.insert(cells, #v)
+    end
   end
   table.sort(cells)
   return cells[#cells]
@@ -335,12 +351,21 @@ function M.win_height_increase(content, percent)
   local increase = 0
   local max_width = M.get_max_float_width(percent)
   local max_len = M.get_max_content_length(content)
+  local new = {}
+  for _, v in pairs(content) do
+    if v:find('\n.') then
+      vim.list_extend(new, vim.split(v, '\n'))
+    else
+      new[#new + 1] = v
+    end
+  end
   if max_len > max_width then
     vim.tbl_map(function(s)
-      if #s > max_width then
-        increase = increase + math.floor(#s / max_width)
+      local cols = vim.fn.strdisplaywidth(s)
+      if cols > max_width then
+        increase = increase + math.floor(cols / max_width)
       end
-    end, content)
+    end, new)
   end
   return increase
 end

@@ -10,18 +10,26 @@ local default_config = {
     expand = '',
     collapse = '',
     code_action = '💡',
-    diagnostic = '🐞',
     incoming = ' ',
     outgoing = ' ',
     hover = ' ',
+    diagnostic = ' ',
     kind = {},
   },
+  hover = {
+    max_width = 0.6,
+  },
   diagnostic = {
+    on_insert = true,
+    on_insert_follow = false,
+    insert_winblend = 0,
+    show_virt_line = true,
     show_code_action = true,
     show_source = true,
     jump_num_shortcut = true,
-    custom_fix = nil,
-    custom_msg = nil,
+    max_width = 0.7,
+    text_hl_follow = false,
+    border_follow = true,
     keys = {
       exec_action = 'o',
       quit = 'q',
@@ -30,6 +38,8 @@ local default_config = {
   },
   code_action = {
     num_shortcut = true,
+    show_server_name = false,
+    extend_gitsigns = false,
     keys = {
       quit = 'q',
       exec = '<CR>',
@@ -53,11 +63,19 @@ local default_config = {
   },
   request_timeout = 2000,
   finder = {
-    edit = { 'o', '<CR>' },
-    vsplit = 's',
-    split = 'i',
-    tabe = 't',
-    quit = { 'q', '<ESC>' },
+    --percentage
+    max_height = 0.5,
+    force_max_height = false,
+    keys = {
+      jump_to = 'p',
+      edit = { 'o', '<CR>' },
+      vsplit = 's',
+      split = 'i',
+      tabe = 't',
+      tabnew = 'r',
+      quit = { 'q', '<ESC>' },
+      close_in_preview = '<ESC>',
+    },
   },
   definition = {
     edit = '<C-c>o',
@@ -65,7 +83,6 @@ local default_config = {
     split = '<C-c>i',
     tabe = '<C-c>t',
     quit = 'q',
-    close = '<Esc>',
   },
   rename = {
     quit = '<C-c>',
@@ -76,6 +93,7 @@ local default_config = {
   },
   symbol_in_winbar = {
     enable = true,
+    ignore_patterns = {},
     separator = ' ',
     hide_keyword = true,
     show_file = true,
@@ -87,7 +105,6 @@ local default_config = {
     win_position = 'right',
     win_with = '',
     win_width = 30,
-    show_detail = true,
     auto_preview = true,
     auto_refresh = true,
     auto_close = true,
@@ -127,8 +144,12 @@ function saga.setup(opts)
     require('lspsaga.lightbulb').lb_autocmd()
   end
 
-  if saga.config.symbol_in_winbar.enable or saga.config.symbol_in_winbar.in_custom then
+  if saga.config.symbol_in_winbar.enable then
     require('lspsaga.symbolwinbar'):symbol_autocmd()
+  end
+
+  if saga.config.diagnostic.on_insert then
+    require('lspsaga.diagnostic'):on_insert()
   end
 end
 

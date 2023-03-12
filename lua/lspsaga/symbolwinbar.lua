@@ -1,4 +1,4 @@
-local lsp, api, fn = vim.lsp, vim.api, vim.fn
+local lsp, api = vim.lsp, vim.api
 local config = require('lspsaga').config.symbol_in_winbar
 local libs = require('lspsaga.libs')
 local symbar = {}
@@ -12,8 +12,8 @@ end
 
 local function bar_prefix()
   return {
-    prefix = '%#LspSagaWinbar',
-    sep = '%#LspSagaWinbarSep#' .. config.separator .. '%*',
+    prefix = '%#SagaWinbar',
+    sep = '%#SagaWinbarSep#' .. config.separator .. '%*',
   }
 end
 
@@ -29,9 +29,12 @@ local function respect_lsp_root(buf)
     return
   end
   local root_dir = clients[1].config.root_dir
-  local parts = vim.split(root_dir, libs.path_sep, { trimempty = true })
   local bufname = api.nvim_buf_get_name(buf)
   local bufname_parts = vim.split(bufname, libs.path_sep, { trimempty = true })
+  if not root_dir then
+    return { #bufname_parts }
+  end
+  local parts = vim.split(root_dir, libs.path_sep, { trimempty = true })
   return { unpack(bufname_parts, #parts + 1) }
 end
 
@@ -49,15 +52,33 @@ local function bar_file_name(buf)
   if not res or #res == 0 then
     return
   end
-  local data = libs.icon_from_devicon(vim.bo[buf].filetype)
+  local data = libs.icon_from_devicon(vim.bo[buf].filetype, true)
   local bar = bar_prefix()
   local items = {}
   for i, v in pairs(res) do
     if i == #res then
-      if #data ~= 0 then
-        table.insert(items, '%#' .. data[2] .. '#' .. data[1] .. ' ' .. '%*')
+      if #data > 0 then
+        table.insert(items, '%#SagaWinbarFileIcon#' .. data[1] .. ' ' .. '%*')
+
+        local ok, conf = pcall(api.nvim_get_hl_by_name, 'SagaWinbarFileIcon', true)
+        if not ok then
+          conf = {}
+        end
+        for k, _ in pairs(conf) do
+          if type(k) ~= 'string' then
+            conf[k] = nil
+          end
+        end
+
+        api.nvim_set_hl(
+          0,
+          'SagaWinbarFileIcon',
+          vim.tbl_extend('force', conf, {
+            foreground = data[2],
+          })
+        )
       end
-      table.insert(items, bar.prefix .. 'File#' .. v .. '%*')
+      table.insert(items, bar.prefix .. 'FileName#' .. v .. '%*')
     else
       table.insert(
         items,
@@ -139,6 +160,10 @@ function symbar.node_is_keyword(buf, node)
   return false
 end
 
+local function stl_escape(str)
+  return str:gsub('%%', '')
+end
+
 local function insert_elements(buf, node, elements)
   if config.hide_keyword and symbar.node_is_keyword(buf, node) then
     return
@@ -146,6 +171,10 @@ local function insert_elements(buf, node, elements)
   local type = get_kind_icon(node.kind, 1)
   local icon = get_kind_icon(node.kind, 2)
   local bar = bar_prefix()
+  if node.name:find('%%') then
+    node.name = stl_escape(node.name)
+  end
+
   if config.color_mode then
     local node_context = bar.prefix .. type .. '#' .. icon .. node.name
     table.insert(elements, node_context)
@@ -200,9 +229,10 @@ local render_symbol_winbar = function(buf, symbols)
     return
   end
 
-  local all_wins = fn.win_findbuf(buf)
+  -- don't show in float window.
   local cur_win = api.nvim_get_current_win()
-  if not vim.tbl_contains(all_wins, cur_win) then
+  local winconf = api.nvim_win_get_config(cur_win)
+  if #winconf.relative > 0 then
     return
   end
 
@@ -239,7 +269,10 @@ local render_symbol_winbar = function(buf, symbols)
   winbar_str = winbar_str .. str
 
   if config.enable and api.nvim_win_get_height(cur_win) - 1 > 1 then
-    --TODO: some string has invalida character handle this string
+    if #winbar_str == 0 then
+      winbar_str = bar_prefix().prefix .. ' #'
+    end
+    --TODO: some string has invalidate character handle this string
     --ref: neovim/filetype/detect.lua scroll in 1588 line
     api.nvim_set_option_value('winbar', winbar_str, { scope = 'local', win = cur_win })
   end
@@ -333,7 +366,7 @@ function symbar:register_events(buf)
     desc = 'Lspsaga symbols render and request',
   })
 
-  api.nvim_create_autocmd({ 'TextChanged', 'InsertLeave' }, {
+  api.nvim_create_autocmd('InsertLeave', {
     group = augroup,
     buffer = buf,
     callback = function()
@@ -354,6 +387,16 @@ function symbar:register_events(buf)
       clean_buf_cache(buf)
     end,
   })
+end
+
+local function match_ignore(buf)
+  local fname = api.nvim_buf_get_name(buf)
+  for _, pattern in pairs(config.ignore_patterns) do
+    if fname:find(pattern) then
+      return true
+    end
+  end
+  return false
 end
 
 function symbar:symbol_autocmd()
@@ -380,6 +423,17 @@ function symbar:symbol_autocmd()
           bar_file_name(opt.buf),
           { scope = 'local', win = winid }
         )
+      else
+        api.nvim_set_option_value(
+          'winbar',
+          bar_prefix().prefix .. ' #',
+          { scope = 'local', win = winid }
+        )
+      end
+
+      --ignored after folder file prefix set
+      if match_ignore(opt.buf) then
+        return
       end
 
       if not self[opt.buf] then

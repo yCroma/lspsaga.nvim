@@ -40,7 +40,11 @@ require("lazy").setup({
     config = function()
         require("lspsaga").setup({})
     end,
-    dependencies = { {"nvim-tree/nvim-web-devicons"} }
+    dependencies = {
+      {"nvim-tree/nvim-web-devicons"},
+      --Please make sure you install markdown and markdown_inline parser
+      {"nvim-treesitter/nvim-treesitter"}
+    }
 }, opt)
 ```
 
@@ -53,7 +57,11 @@ use({
     config = function()
         require("lspsaga").setup({})
     end,
-    requires = { {"nvim-tree/nvim-web-devicons"} }
+    requires = {
+        {"nvim-tree/nvim-web-devicons"},
+        --Please make sure you install markdown and markdown_inline parser
+        {"nvim-treesitter/nvim-treesitter"}
+    }
 })
 ```
 
@@ -95,6 +103,17 @@ keymap("n", "gd", "<cmd>Lspsaga peek_definition<CR>")
 
 -- Go to definition
 keymap("n","gd", "<cmd>Lspsaga goto_definition<CR>")
+
+-- Peek type definition
+-- You can edit the file containing the type definition in the floating window
+-- It also supports open/vsplit/etc operations, do refer to "definition_action_keys"
+-- It also supports tagstack
+-- Use <C-t> to jump back
+keymap("n", "gt", "<cmd>Lspsaga peek_type_definition<CR>")
+
+-- Go to type definition
+keymap("n","gt", "<cmd>Lspsaga goto_type_definition<CR>")
+
 
 -- Show line diagnostics
 -- You can pass argument ++unfocus to
@@ -172,7 +191,6 @@ You can find the documentation for Lspsaga in Neovim by using `:h lspsaga`.
   request_timeout = 2000,
 ```
 
-
 ## :Lspsaga lsp_finder
 
 A `finder` to show the defintion, reference and implementation (only shown when current hovered word is a function, a type, a class, or an interface).
@@ -180,25 +198,38 @@ A `finder` to show the defintion, reference and implementation (only shown when 
 Default options:
 ```lua
   finder = {
-    edit = { "o", "<CR>" },
-    vsplit = "s",
-    split = "i",
-    tabe = "t",
-    quit = { "q", "<ESC>" },
+    --percentage
+    max_height = 0.5,
+    force_max_height = false
+    keys = {
+      jump_to = 'p',
+      edit = { 'o', '<CR>' },
+      vsplit = 's',
+      split = 'i',
+      tabe = 't',
+      tabnew = 'r',
+      quit = { 'q', '<ESC>' },
+      close_in_preview = '<ESC>'
+    },
   },
 ```
+
+- `max_height` of the finder window.
+- `force_max_height` force window height to max_height
+- `keys.jump_to` finder peek window.
+- `close_in_preview` will close all finder window in when you in preview window.
 
 <details>
 <summary>lsp_finder showcase</summary>
 
-<img
-src="https://user-images.githubusercontent.com/41671631/212032702-f45bba5a-3e2e-465d-85c3-3d02d1b88da4.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719819-4bfe6e86-fecc-4dc0-bac0-837c0bdeb349.gif" height=80% width=80%/>
 </details>
 
 
 ## :Lspsaga peek_definition
 
-There are two commands, `:Lspsaga peek_definition` and `:Lspsaga goto_definition`. The `peek_definition` command works like the VSCode command of the same name, which shows the target file in an editable floating window.
+There are two commands, `:Lspsaga peek_definition` and `:Lspsaga goto_definition`. The `peek_definition`
+command works like the VSCode command of the same name, which shows the target file in an editable floating window.
 
 Default options:
 ```lua
@@ -208,7 +239,6 @@ Default options:
     split = "<C-c>i",
     tabe = "<C-c>t",
     quit = "q",
-    close = "<Esc>",
   }
 ```
 
@@ -221,8 +251,7 @@ The steps demonstrated in this showcase are:
 - Pressing `<C-c>o` to jump to the file in the floating window
 - Lspsaga shows a beacon highlight after jumping to the file
 
-<img
-src="https://user-images.githubusercontent.com/41671631/212002926-60c11060-233c-4610-a86e-57decefe6927.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719806-0dea0248-4a2c-45df-a258-43a4ba207a43.gif" height=80% width=80%/>
 </details>
 
 ## :Lspsaga goto_definition
@@ -236,6 +265,8 @@ Default options:
 ```lua
   code_action = {
     num_shortcut = true,
+    show_server_name = false,
+    extend_gitsigns = true,
     keys = {
       -- string | table type
       quit = "q",
@@ -244,6 +275,7 @@ Default options:
   },
 ```
 - `num_shortcut` - It is `true` by default so you can quickly run a code action by pressing its corresponding number.
+- `extend_gitsigns` show gitsings in code action.
 
 <details>
 <summary>code_action showcase</summary>
@@ -253,7 +285,7 @@ The steps demonstrated in this showcase are:
 - Pressing `j` to move within the code action preview window
 - Pressing `<Cr>` to run the action
 
-<img src="https://user-images.githubusercontent.com/41671631/212005522-bc7fa99b-6c6f-4c0e-b7fc-c95edee5c169.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719772-ccebdcba-4e4a-46f7-9af8-61ac8391f2f4.gif" height=80% width=80%/>
 </details>
 
 ## :Lspsaga Lightbulb
@@ -278,7 +310,8 @@ Default options:
 
 ## :Lspasga hover_doc
 
-You should install the [treesitter](https://github.com/nvim-treesitter/nvim-treesitter) markdown parser so Lspsaga can use it to render the hover window.
+You should install the [treesitter](https://github.com/nvim-treesitter/nvim-treesitter) markdown and markdown_line parser.
+Lspsaga can use it to render the hover window.
 You can press the keyboard shortcut for `:Lspsaga hover_doc` twice to enter the hover window.
 
 <details>
@@ -289,7 +322,7 @@ The steps demonstrated in this showcase are:
 - Pressing `K` again to enter the hover window
 - Pressing `q` to quit
 
-<img src="https://user-images.githubusercontent.com/41671631/212010765-55341ba1-95c2-41e9-b4bd-03827676ee94.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719832-37d2f6ab-66ed-4500-b6de-a6c289983ab2.gif" height=80% width=80%/>
 
 </details>
 
@@ -300,11 +333,19 @@ Jumps to next diagnostic position and show a beacon highlight. Lspsaga will then
 Default options:
 ```lua
   diagnostic = {
+    on_insert = true,
+    on_insert_follow = false,
+    insert_winblend = 0,
+    show_virt_line = true,
     show_code_action = true,
     show_source = true,
     jump_num_shortcut = true,
+     --1 is max
+    max_width = 0.7,
     custom_fix = nil,
     custom_msg = nil,
+    text_hl_follow = false,
+    border_follow = true,
     keys = {
       exec_action = "o",
       quit = "q",
@@ -313,10 +354,20 @@ Default options:
   },
 ```
 
+- `show_virt_line` default is true, show a line when using diagnostic jump. false disable it.
 - Using `go_action`, you can quickly jump to line where actions need to be taken in the diagnostics floating window.
 - `jump_num_shortcut` - The default is `true`. After jumping, Lspasga will automatically bind code actions to a number. Afterwards, you can press the number to execute the code action. After the floating window is closed, these numbers will no longer be tied to the same code actions.
-- `custom_msg` string  used to  custom the diagnostic jump `Msg` section titile 
-- `custom_fix` string  used to  custom the diagnostic jump `Fix` section titile 
+- `custom_msg` string used to custom the diagnostic jump `Msg` section titile
+- `custom_fix` string used to custom the diagnostic jump `Fix` section titile
+- `max_width` is the max width for diagnostic jump window. percentage
+- `text_hl_follow` is false default true that you can define `DiagnostcText` to custom the diagnotic
+  text color
+- `border_follow` the border highlight will follow the diagnostic type. if false it will use the
+  highlight `DiagnosticBorder`.
+- `on_insert` default is true it works like the emacs helix show diagnostic in right but in line.
+- `on_insert_follow` true will follow current line. false will on top right
+- `insert_winblend` default is 0, when it's to 100 will completely transparent. the color will
+  changed a little light. 0 will use the `NormalFloat` group. it will link to `Normal` by Lspsaga.
 
 You can also use a filter when using diagnostic jump by using a Lspsaga function. The function takes a table as its argument.
 It is functionally identical to `:h vim.diagnostic.get_next`.
@@ -328,19 +379,26 @@ require("lspsaga.diagnostic"):goto_prev({ severity = vim.diagnostic.severity.ERR
 ```
 
 <details>
-<summary>diagnostic_jump_next showcase</summary>
+<summary> showcase</summary>
 
 The steps demonstrated in this showcase are:
 - Pressing `[e` to jump to the next diagnostic position, which shows the beacon highlight and the code actions in a diagnostic window
 - Pressing the number `2` to execute the code action without needing to enter the floating window
 
-<img src="https://user-images.githubusercontent.com/41671631/212669236-dda9f06b-6840-41cd-92b4-5c2290077c37.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/219829469-ea0e6367-a8ad-4e07-b890-0115848bbc9f.gif" height=80% width=80%/>
 
 - If you want to see the code action, you can use `<C-w>w` to enter the floating window.
 - Press `g` to go to the action line and see the code action preview.
 - Press `o` to execute the action.
 
-<img src="https://user-images.githubusercontent.com/41671631/212669236-dda9f06b-6840-41cd-92b4-5c2290077c37.gif" height=80% width=80%/>
+`on_insert` is true, `on_insert_follow` is false
+
+<img src="https://user-images.githubusercontent.com/41671631/219940539-da554175-dd91-4bca-aaf8-ab39d0ba2a2c.gif" height=80% width=80%/>
+
+`on_insert_follow` is true
+
+<img src="https://user-images.githubusercontent.com/41671631/219909443-f5b4f796-e59d-47cf-9f9a-8a9a69d92449.gif" height=80% width=80%/>
+
 
 </details>
 
@@ -352,7 +410,8 @@ The steps demonstrated in this showcase are:
 
 <details>
 <summary>show_diagnostics showcase</summary>
-<img src="https://user-images.githubusercontent.com/41671631/212220793-a52215fd-5f60-4be6-8132-78247b921f1e.gif" height=80% width=80%/>
+
+<img src="https://user-images.githubusercontent.com/41671631/219829470-9b49a6c2-5ded-4b3f-ab38-96cce32d0435.gif" height=80% width=80%/>
 </details>
 
 ## :Lspsaga rename
@@ -380,14 +439,14 @@ The steps demonstrated in this showcase are:
 - Pressing `gr` to run `:Lspsaga rename`
 - Typing `stesdd` and then pressing `<CR>` to execute the rename
 
-<img src="https://user-images.githubusercontent.com/41671631/212015791-5a278ace-d23a-4954-bb95-1978f51153a7.gif" height=80% width=80%/>
+<img src="" height=80% width=80%/>
 
 The steps demonstrated in this showcase are:
 - Pressing `gR` to run `:Lspsaga rename ++project`
 - Pressing `x` to mark the file
 - Pressing `<CR>` to execute rename
 
-<img src="https://user-images.githubusercontent.com/41671631/213900326-066036bf-848a-403c-bf05-ac661e424e63.gif"  height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719843-7278cc97-399f-48ee-88eb-555647eba42f.gif"  height=80% width=80%/>
 </details>
 
 ## :Lspsaga outline
@@ -419,10 +478,10 @@ The steps demonstrated in this showcase are:
 - Pressing `j` to move down
 - Pressing `o` to jump
 
-<img src="https://user-images.githubusercontent.com/41671631/212017018-6753e470-58e4-498e-8812-5ff416ff27c1.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719836-25a03774-891b-4dfd-ab2f-0b590ae1c862.gif" height=80% width=80%/>
 </details>
 
-## :Lspsaga incoming_calls
+## :Lspsaga incoming_calls / outgoing_calls
 
 Runs the LSP's callhierarchy/incoming_calls.
 
@@ -444,17 +503,9 @@ Default options:
 
 <details>
 <summary>incoming_calls showcase</summary>
-<img src="https://user-images.githubusercontent.com/41671631/212018219-26ed4a5f-00e1-488a-8a87-1a89f2c5d14b.gif" height=80% width=80%/>
+<img src="https://user-images.githubusercontent.com/41671631/215719762-9482e84b-921e-425e-b1a9-7bd1f569a5ce.gif" height=80% width=80%/>
 </details>
 
-## :Lspsaga outgoing_calls
-
-Runs the LSP's callhierarchy/outgoing_calls.
-
-<details>
-<summary>outgoing_calls showcase</summary>
-<img src="https://user-images.githubusercontent.com/41671631/212024418-cf26f3f7-7acb-46df-a50a-9abe3f8f68f3.gif" height=80% width=80%/>
-</details>
 
 ## :Lspsaga symbols in winbar
 
@@ -465,6 +516,7 @@ Default options:
   symbol_in_winbar = {
     enable = true,
     separator = " ",
+    ignore_patterns={},
     hide_keyword = true,
     show_file = true,
     folder_level = 2,
@@ -475,7 +527,9 @@ Default options:
 - `hide_keyword` - The default value is `true`. Lspsaga will hide some keywords and temporary variables to make the symbols look cleaner.
 - `folder_level` only works when `show_file` is `true`.
 - `respect_root` will respect the LSP's root. If this is `true`, Lspsaga will ignore the `folder_level` option. If no LSP client is being used, Lspsaga will fall back to using folder level.
-- `color_mode` - The default value is `true`. When it is set  to `false`, only icons will have color.
+- `color_mode` - The default value is `true`. When it is set to `false`, only icons will have color.
+- `ignore_patterns` table type when fileanme matched the pattern will ignore render symbols. if
+  show_file is true. the file name will still set.
 
 <details>
 <summary>Symbols in winbar</summary>
@@ -519,18 +573,14 @@ after jump from float window there will show beacon to remind you where the curs
 Default UI options
 ```lua
   ui = {
-    -- Currently, only the round theme exists
-    theme = "round",
     -- This option only works in Neovim 0.9
     title = true,
     -- Border type can be single, double, rounded, solid, shadow.
-    border = "solid",
+    border = "single",
     winblend = 0,
     expand = "",
     collapse = "",
-    preview = " ",
     code_action = "💡",
-    diagnostic = "🐞",
     incoming = " ",
     outgoing = " ",
     hover = ' ',
@@ -542,27 +592,37 @@ Default UI options
 
 All highlight groups can be found in [highlight.lua](./lua/lspsaga/highlight.lua).
 
+`require('lspsaga.lspkind').get_kind_group()` will return all the SagaWinbar + kind name group . also 
+include `SagaWinbarFileName SagaWinbarFileIcon SagaWinbarFolderName SagaWinbarSep`. These groups are 
+special. so if you want use this api to custom the highlight. you need dealwith these 4 groups the
+last item is `SagaWinbarSep`.
+
+
 # Custom Kind
 
 Modify `ui.kind` to change the icons of the kinds.
 
 All kinds used in Lspsaga are defined in [lspkind.lua](./lua/lspsaga/lspkind.lua).
-The key in `ui.kind` is the kind name, and the value can either be a string or a table. If a string is passed, it is setting the `icon`. If table is passed, it will be passed as `{ icon, color }`.
-
-# Backers
-Thanks for everything!
-
-[@Möller Lukas](https://github.com/lmllrjr), 
-[@HendrikPetertje](https://github.com/HendrikPetertje),
-[@Bojan Wilytsch](https://github.com/bwilytsch) and
-[@Burgess Darrion](https://github.com/ca-mantis-shrimp)
+The key in `ui.kind` is the kind name, and the value can either be a string or a table. If a string is passed, it is setting the `icon`. If table is passed, it will be passed as `{ icon, highlight group }`, for example, to change the a folder's icon color, you could do this: `ui = { kind = { ["Folder"] = { " ", "@comment" }, }, },`.
 
 # Donate
 
+Currently, I am in need of some donations. If you'd like to support my work financially, please donate through Github Sponsor button or 
+[PayPal](https://paypal.me/bobbyhub). Thanks!
 [![](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/bobbyhub)
 
-Currently, I am in need of some donations. If you'd like to support my work financially, please donate through [PayPal](https://paypal.me/bobbyhub).
-Thanks!
+
+# Backers
+Thanks for everyone!
+
+[Scott Ming](https://github.com/scottming)
+[@Möller Lukas](https://github.com/lmllrjr)
+[@HendrikPetertje](https://github.com/HendrikPetertje)
+[@Bojan Wilytsch](https://github.com/bwilytsch)
+[@zhourrr](https://github.com/zhourrr)
+[@Burgess Darrion](https://github.com/ca-mantis-shrimp)
+[@Ceserani Alessandro](https://github.com/al-ce)
+
 
 # License
 
